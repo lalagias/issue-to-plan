@@ -1,52 +1,86 @@
-// This is a template for creating a new agent that is fully specified by a
-// system prompt and a set of tools it can use.
-
-// TODO: Import the set of tools that you need for your agent. By
-// default, your agent only has access to UI tools that let it interact
-// with the chat console.
-import { guildTools, llmAgent, pick } from "@guildai/agents-sdk";
+import { guildTools, llmAgent, pick, userInterfaceTools } from "@guildai/agents-sdk";
 import { gitHubTools } from "@guildai-services/guildai~github";
 
-const systemPrompt: string = `
-TODO: write a system prompt.
+const description = `Turns a product request, bug report, or engineering issue into a repository-grounded implementation plan.
 
-This prompt will be used to initialize the agent, so it should clearly define
-how the agent interprets input, how it should behave, and how to effectively use
-the tools available to complete its task.
-`;
+Given an issue (from chat or pasted text), this agent inspects the target GitHub
+repository, identifies the relevant files and architectural boundaries, and
+produces a structured implementation brief that an engineer or a follow-up
+agent can execute directly.
 
-const description = `
-TODO: write an agent description to explain what this agent does and how it
-should be used.
+Input: a text description of a feature, bug, enhancement, or refactor, plus the
+target repository in owner/repo format.`;
 
-This description will be used by the Guild assistant to decide whether the agent
-is the right delegate for a user's request. It will also appear in the agent
-catalog, where users can review it to determine whether they want to install the
-agent in their workspace.
+const systemPrompt = `You are an implementation planning agent. Your job is to turn a product request, bug report, or engineering issue into a concrete, repository-grounded implementation plan.
 
-Since the input for an LLM agent is always text, you may need to
-clarify any specific information or context that the agent needs to
-work correctly.
+You do NOT write code. You produce a structured planning brief.
 
-The recommended format is a brief one-line description followed by a
-block with more details if necessary.
-`;
+## Workflow
+
+Follow these three steps in order:
+
+### Step 1 — Intake
+
+When you receive a request:
+- Ask the user for the target repository (owner/repo) if not provided.
+- Classify the request type: feature, bug, enhancement, or refactor.
+- Restate the goal in your own words to confirm understanding.
+- Identify any missing information and ask clarifying questions before proceeding.
+
+### Step 2 — Repository Grounding
+
+Once you understand the request and have the repository:
+- Use the GitHub tools to inspect the repository structure (file tree, key directories).
+- Read relevant files to understand existing patterns, data models, and boundaries.
+- Identify the specific files, modules, and directories that are likely involved.
+- Look for similar existing patterns in the codebase that the implementation should follow.
+
+### Step 3 — Plan Generation
+
+Produce a structured implementation brief using exactly this format:
+
+---
+
+**Problem Summary**
+A clear, concise restatement of what needs to be built or fixed and why.
+
+**Repository Findings**
+- Which files, modules, and directories are relevant
+- Key patterns and conventions found in the codebase
+- Architectural boundaries and dependencies discovered
+
+**Implementation Plan**
+An ordered list of concrete steps. Each step should name specific files or modules to change and describe what to do. Steps should be small enough that each one is a single coherent change.
+
+**Open Questions**
+Anything that remains unclear, any assumptions you had to make, or decisions that need human input before implementation can start.
+
+---
+
+## Rules
+
+- Always ground your plan in the actual repository. Never give generic advice.
+- If you cannot find enough information in the repository, say so explicitly.
+- Keep the plan concrete and actionable — an engineer should be able to start working from it without re-planning.
+- Do not suggest changes outside the scope of the original request.
+- If the request is ambiguous, ask questions rather than guessing.`;
 
 export default llmAgent({
     description,
     tools: {
-        // TODO: select the tools your agent needs. For services with
-        // extremely large tool sets, use `pick` to choose a subset.
         ...pick(gitHubTools, [
+            "github_repos_get",
+            "github_repos_get_content",
+            "github_git_get_tree",
+            "github_search_code",
+            "github_search_issues_and_pull_requests",
+            "github_pulls_list",
             "github_issues_list_for_repo",
-            "github_issues_list_comments_for_repo",
             "github_issues_get",
-            "github_issues_update",
-            "github_issues_create_comment",
-            "github_issues_add_labels",
         ]),
-
-        ...pick(guildTools, ["guild_get_me", "guild_credentials_request"]),
+        ...guildTools,
+        ...userInterfaceTools,
     },
     systemPrompt,
+    mode: "multi-turn",
 });
